@@ -6,6 +6,8 @@ from time import time
 import py
 import pytest
 from py._code.code import TerminalRepr
+from gevent import lock
+sem = lock.BoundedSemaphore(1)
 
 def pytest_namespace():
     return {
@@ -75,6 +77,7 @@ def runtestprotocol(item, log=True, nextitem=None):
         reports.append(call_and_report(item, "call", log))
     reports.append(call_and_report(item, "teardown", log,
         nextitem=nextitem))
+
     # after all teardown hooks have been called
     # want funcargs and request info to go away
     if hasrequest:
@@ -119,6 +122,7 @@ def call_and_report(item, when, log=True, **kwds):
     call = call_runtest_hook(item, when, **kwds)
     hook = item.ihook
     report = hook.pytest_runtest_makereport(item=item, call=call)
+
     if log:
         hook.pytest_runtest_logreport(report=report)
     if check_interactive_exception(call, report):
@@ -390,6 +394,8 @@ class SetupState(object):
     def prepare(self, colitem):
         """ setup objects along the collector chain to the test-method
             and teardown previously setup objects."""
+        sem.acquire()
+
         needed_collectors = colitem.listchain()
         self._teardown_towards(needed_collectors)
 
@@ -403,7 +409,9 @@ class SetupState(object):
                 col.setup()
             except Exception:
                 col._prepare_exc = sys.exc_info()
+                sem.release()
                 raise
+        sem.release()
 
 def collect_one_node(collector):
     ihook = collector.ihook

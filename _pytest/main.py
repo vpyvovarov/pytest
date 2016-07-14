@@ -4,6 +4,9 @@ import re
 import py
 import pytest, _pytest
 import os, sys, imp
+import gevent
+
+
 try:
     from collections import MutableMapping as MappingMixin
 except ImportError:
@@ -124,6 +127,28 @@ def _main(config, session):
 def pytest_collection(session):
     return session.perform_collect()
 
+# XXX: initial version
+#def pytest_runtestloop(session):
+#    if session.config.option.collectonly:
+#        return True
+#
+#    def getnextitem(i):
+#        # this is a function to avoid python2
+#        # keeping sys.exc_info set when calling into a test
+#        # python2 keeps sys.exc_info till the frame is left
+#        try:
+#            return session.items[i+1]
+#        except IndexError:
+#            return None
+#
+#    for i, item in enumerate(session.items):
+#        nextitem = getnextitem(i)
+#        item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+#        if session.shouldstop:
+#            raise session.Interrupted(session.shouldstop)
+#    return True
+
+
 def pytest_runtestloop(session):
     if session.config.option.collectonly:
         return True
@@ -133,16 +158,19 @@ def pytest_runtestloop(session):
         # keeping sys.exc_info set when calling into a test
         # python2 keeps sys.exc_info till the frame is left
         try:
-            return session.items[i+1]
+            return session.items[i + 1]
         except IndexError:
             return None
-
+    gls = []
     for i, item in enumerate(session.items):
         nextitem = getnextitem(i)
-        item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+        gl = gevent.spawn(item.config.hook.pytest_runtest_protocol, item=item, nextitem=nextitem)
+        gls.append(gl)
         if session.shouldstop:
             raise session.Interrupted(session.shouldstop)
+    gevent.joinall(gls)
     return True
+
 
 def pytest_ignore_collect(path, config):
     p = path.dirpath()
